@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Security.Policy;
 using DiskCardGame;
@@ -27,14 +28,49 @@ namespace Act2Tower.API
         public static GameObject GBCSingletonsPrefab =>
             Resources.Load<GameObject>("prefabs\\gbcoverworld\\GBCSingletons");
 
+        private static GameObject _ReturnToMapVolumePrefab;
+
+        public static GameObject ReturnToMapVolumePrefab
+        {
+            get
+            {
+                if (_ReturnToMapVolumePrefab == null)
+                {
+                    _ReturnToMapVolumePrefab = new GameObject("ReturnToMapVolume");
+                    _ReturnToMapVolumePrefab.transform.position = new Vector3(0, -1.2f, 0);
+                    _ReturnToMapVolumePrefab.SetActive(false);
+                    _ReturnToMapVolumePrefab.layer = LayerMask.NameToLayer("GBCPixel");
+                    var boxCollider2D = _ReturnToMapVolumePrefab.AddComponent<BoxCollider2D>();
+                    boxCollider2D.isTrigger = true;
+                    boxCollider2D.size=new Vector2(0.5f ,0.3f);
+                    var marker=new GameObject("PlayerPositionMarker");
+                    marker.transform.parent = _ReturnToMapVolumePrefab.transform;
+                    marker.transform.localPosition = new Vector3(0 ,0.3f, 0);
+                    var volume=_ReturnToMapVolumePrefab.AddComponent<SceneTransitionVolume>();
+                    volume.enterPositionMarker = marker.transform;
+                    volume.sceneId = "GBC_WorldMap";
+                    _ReturnToMapVolumePrefab.AddComponent<SpriteRenderer>().sprite =
+                        Resources.Load<Sprite>("art\\gbc\\temples\\door_light");
+                    GameObject.DontDestroyOnLoad(_ReturnToMapVolumePrefab);
+                }
+                return _ReturnToMapVolumePrefab;
+            }
+        }
+
         public static GameObject FreeMovePlayerPrefab =>
             Resources.Load<GameObject>("prefabs\\gbcinterior\\FreeMovePlayer");
 
-        public static GameObject TryCreateGBCEntranceScene(string name = "SCENE")
+        public static GameObject TryCreateGBCEntranceScene(string name = "SCENE", bool addExitToMap = true)
         {
             var go = new GameObject(name);
             GameObject.Instantiate(GBCCamerasPrefab).transform.parent = go.transform;
             GameObject.Instantiate(FreeMovePlayerPrefab).transform.parent = go.transform;
+            if (addExitToMap)
+            {
+                var gV=GameObject.Instantiate(ReturnToMapVolumePrefab);
+                gV .transform.parent = go.transform;
+                gV.SetActive(true);
+            }
             go.SetActive(false);
             go.hideFlags = HideFlags.HideAndDontSave;
             return go;
@@ -54,14 +90,21 @@ namespace Act2Tower.API
 
         private static void SwitchToEntranceScene(GameObject scene)
         {
-            foreach (var gameObject in GameObject.FindObjectsOfType<GameObject>().ToList().FindAll(g => g.activeInHierarchy))
+            foreach (var gameObject in GameObject.FindObjectsOfType<GameObject>().ToList()
+                         .FindAll(g => g.activeInHierarchy))
             {
-                if(gameObject.name!="CursorClone"&& gameObject.name!="CustomCoroutineRunner"&&gameObject.name!=GBCSingletonsPrefab.name&& gameObject.scene.name==("GBC_WorldMap") && gameObject.hideFlags==HideFlags.None) 
+                if (gameObject.name != "CursorClone" && gameObject.name != "CustomCoroutineRunner" &&
+                    gameObject.name != GBCSingletonsPrefab.name && gameObject.scene.name == ("GBC_WorldMap") &&
+                    gameObject.hideFlags == HideFlags.None)
+                {
                     gameObject.SetActive(false);
+                }
             }
 
             scene.SetActive(true);
         }
+
+        public static event Action<GameObject> OnGBCZoneSceneLoaded;
 
         public static void AddNavigationZoneEntrance(GameObject navigationZoneObject,
             GameObject EntranceScene, LookDirection dir)
@@ -69,7 +112,13 @@ namespace Act2Tower.API
             var zone = navigationZoneObject.GetComponent<NavigationZone2D>();
             if (zone.navigationEvents == null) zone.navigationEvents = new List<NavigationZone2D.NavigationEvent>();
             zone.navigationEvents.Add(new NavigationZone2D.NavigationEvent()
-                { direction = dir, action = delegate { SwitchToEntranceScene(EntranceScene); } });
+            {
+                direction = dir, action = delegate
+                {
+                    SwitchToEntranceScene(EntranceScene);
+                    OnGBCZoneSceneLoaded?.Invoke(EntranceScene);
+                }
+            });
         }
 
         public static GameObject CreateGBCNaviationZone(string name, GameObject MapBase, Vector3 pos,
